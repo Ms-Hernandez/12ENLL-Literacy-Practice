@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>NCEA Reading Corequisite Simulator</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .unselectable { -webkit-user-select: none; user-select: none; }
+        .passage-scroll { max-height: 500px; overflow-y: auto; border: 1px solid #e5e7eb; padding: 1.5rem; background: #fff; }
+        body { background-color: #f0f2f5; }
+        .hidden { display: none; }
+        .lock-notice { font-size: 0.85rem; color: #b91c1c; font-weight: bold; }
+        label { transition: all 0.2s; }
+        label:hover { background-color: #f3f4f6; }
+    </style>
+</head>
+<body oncontextmenu="return false;" class="unselectable">
+
+<div id="app" class="max-w-6xl mx-auto my-8 p-6 bg-white shadow-xl rounded-lg border-t-8 border-blue-900">
+    
+    <div class="flex justify-between items-center mb-6 border-b pb-4">
+        <div>
+            <h1 class="text-2xl font-bold text-blue-900">NCEA Reading Corequisite Simulation</h1>
+            <p id="student-identity" class="text-gray-600 font-medium"></p>
+        </div>
+        <div id="timer-box" class="hidden text-right">
+            <span class="text-sm uppercase text-gray-500 font-bold">Total Exam Time</span>
+            <div id="timer" class="text-3xl font-mono font-bold text-red-600">45:00</div>
+        </div>
+    </div>
+
+    <div id="start-screen" class="text-center py-10">
+        <h2 class="text-xl mb-4 font-semibold">Candidate Registration</h2>
+        <input type="text" id="name-input" placeholder="Enter Your Full Name" class="border-2 border-gray-300 p-3 rounded-lg w-80 mb-4 focus:border-blue-900 outline-none text-center">
+        <div class="max-w-lg mx-auto text-left text-sm text-gray-700 bg-blue-50 border-l-4 border-blue-400 p-4 mb-6">
+            <strong>Mandatory Requirements:</strong><br>
+            • You must spend <strong>at least 8 minutes</strong> on each passage before proceeding.<br>
+            • Answer choices have been randomized; do not assume the longest answer is correct.<br>
+            • Tab-switching is logged. Copy/Paste is disabled.
+        </div>
+        <button onclick="startAssessment()" class="bg-blue-900 text-white px-12 py-4 rounded-xl font-bold hover:bg-blue-800 transition shadow-lg">START ASSESSMENT</button>
+    </div>
+
+    <div id="exam-area" class="hidden">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div class="passage-scroll rounded shadow-inner" id="text-display"></div>
+            <div id="question-display" class="space-y-6"></div>
+        </div>
+        <div class="mt-8 flex justify-between items-center border-t pt-6">
+            <div>
+                <span id="progress-text" class="text-gray-500 font-bold block">Section 1 of 3</span>
+                <span id="lock-timer" class="lock-notice">Section locked for 8:00</span>
+            </div>
+            <button id="nav-btn" disabled onclick="nextSection()" class="bg-gray-400 text-white px-8 py-3 rounded font-bold cursor-not-allowed transition">NEXT SECTION</button>
+        </div>
+    </div>
+
+    <div id="report-screen" class="hidden">
+        <div class="bg-green-50 border-l-4 border-green-500 p-4 mb-6 flex justify-between items-center">
+            <h2 class="text-2xl font-bold text-green-800">Assessment Report</h2>
+            <span id="final-score-pill" class="bg-green-600 text-white px-4 py-1 rounded-full font-bold"></span>
+        </div>
+        
+        <div id="report-content" class="space-y-6"></div>
+
+        <div class="mt-8 p-6 bg-blue-900 text-white rounded-lg">
+            <h3 class="text-xl font-bold mb-4">Reading Mastery: Tips & Tricks</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
+                <div>
+                    <h4 class="font-bold border-b border-blue-400 mb-2">During the Test</h4>
+                    <ul class="list-disc ml-4 space-y-2">
+                        <li><strong>Avoid "Length Bias":</strong> Examiners often write long, detailed "distractors" to trick students who aren't reading closely.</li>
+                        <li><strong>The "Delete" Rule:</strong> Read a sentence and mentally remove the adjectives. Does the core meaning of the text change? This helps with Critical Analysis.</li>
+                    </ul>
+                </div>
+                <div>
+                    <h4 class="font-bold border-b border-blue-400 mb-2">Preparation Strategies</h4>
+                    <ul class="list-disc ml-4 space-y-2">
+                        <li><strong>Context Clues:</strong> When you see a word you don't know, look at the words *before* and *after*. Usually, the text provides a definition or a synonym nearby.</li>
+                        <li><strong>Author's Purpose:</strong> Ask yourself: Is the author trying to teach me (Informational), move me (Narrative), or change my mind (Persuasive)?</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        <button onclick="generatePDF()" class="mt-8 bg-blue-900 text-white px-8 py-4 rounded font-bold w-full hover:bg-blue-800">DOWNLOAD PDF REPORT</button>
+    </div>
+</div>
+
+<script>
+const { jsPDF } = window.jspdf;
+let studentName = "", tabSwitches = 0, currentSection = 0, timeLeft = 2700, sectionTimeLeft = 480;
+let mainTimer, sectionTimer, userAnswers = [];
+
+const examData = [
+    {
+        title: "Passage 1: Sustainable Architecture in NZ",
+        content: "Modern New Zealand architecture is moving toward 'Passive House' standards. These buildings use high levels of insulation and airtightness to maintain a constant temperature without active heating. While critics argue that airtight homes could lead to poor air quality, proponents point to mechanical ventilation systems that constantly swap stale indoor air for filtered outdoor air. This approach significantly reduces long-term energy poverty for low-income families.",
+        questions: [
+            { q: "What is the core feature of a 'Passive House'?", options: ["Active solar panels on every roof", "High insulation and airtightness", "Open-plan living for better airflow", "Traditional wood-burning fireplaces"], correct: 1, level: "Literal" },
+            { q: "What concern do critics have about this building style?", options: ["The houses are too expensive for the average New Zealander to afford", "The lack of airflow might result in diminished air quality indoors", "The insulation materials are harmful to the environment", "They do not look like traditional kiwi homes"], correct: 1, level: "Literal" },
+            { q: "What can be inferred about 'active heating'?", options: ["It is the only way to stay warm in a Passive House", "It is no longer legal in New Zealand", "It is an energy-intensive method used in standard homes", "It is cheaper than installing insulation"], correct: 2, level: "Inferential" },
+            { q: "How does the author counter the critics' argument?", options: ["By agreeing that air quality is a major risk", "By mentioning mechanical ventilation systems", "By suggesting that people should open windows", "By ignoring the concern entirely"], correct: 1, level: "Inferential" },
+            { q: "What is the author's primary attitude toward Passive Houses?", options: ["Skeptical", "Supportive", "Hostile", "Indifferent"], correct: 1, level: "Critical" }
+        ]
+    },
+    {
+        title: "Passage 2: The Night Shift (Fiction)",
+        content: "The clock on the wall didn't tick; it thudded. For Elias, working the graveyard shift at the depot was a lesson in solitude. The towering shelves of boxes were his only companions, casting long, jagged shadows that danced in the dim yellow light. He checked the manifest again. 'Box 402 - Fragile.' He reached for it, but his hand trembled. A faint scratching sound was coming from inside the cardboard. He held his breath, the silence of the warehouse suddenly feeling very heavy.",
+        questions: [
+            { q: "Where does Elias work?", options: ["A library", "A depot", "A hospital", "A clock shop"], correct: 1, level: "Literal" },
+            { q: "What word does the author use to describe the sound of the clock?", options: ["Ticking", "Thudded", "Humming", "Ringing"], correct: 1, level: "Literal" },
+            { q: "What does the 'heavy silence' suggest about Elias's emotional state?", options: ["He is very tired and needs to go home", "He is experiencing growing fear or anxiety", "He is happy to be alone with his thoughts", "He is annoyed by the loud warehouse noise"], correct: 1, level: "Inferential" },
+            { q: "What can be inferred about the contents of Box 402?", options: ["It contains a clock", "It contains something alive", "It is empty", "It is made of metal"], correct: 1, level: "Inferential" },
+            { q: "The description of the shadows as 'jagged' and 'dancing' serves to:", options: ["Show that the lights are broken", "Create an eerie and unsettling atmosphere", "Explain the layout of the warehouse", "Show Elias is a good worker"], correct: 1, level: "Critical" }
+        ]
+    },
+    {
+        title: "Passage 3: The Importance of Local News",
+        content: "As global social media giants dominate our screens, local newspapers are vanishing. This isn't just a loss of paper; it's a loss of accountability. Local journalists attend council meetings and court hearings that international outlets ignore. Without them, the actions of local power-holders go unscrutinized. We risk entering an era where we know everything about a celebrity's vacation but nothing about the new tax being debated in our own town hall.",
+        questions: [
+            { q: "What is one specific task local journalists perform?", options: ["Interviewing global celebrities", "Attending council meetings", "Fixing social media algorithms", "Writing about international wars"], correct: 1, level: "Literal" },
+            { q: "According to the text, what is the 'real loss' when newspapers vanish?", options: ["A source of entertainment", "Accountability of local power-holders", "Jobs for paper delivery people", "Interesting advertisements"], correct: 1, level: "Literal" },
+            { q: "What does 'unscrutinized' mean in this context?", options: ["Not paid for", "Not watched or checked", "Very popular", "Highly organized"], correct: 1, level: "Inferential" },
+            { q: "The author's comparison between 'celebrity vacations' and 'town hall taxes' is used to:", options: ["Show that celebrities are more important", "Highlight a lack of balance in current news consumption", "Encourage people to travel more", "Promote social media use"], correct: 1, level: "Critical" },
+            { q: "What is the author's main persuasive goal?", options: ["To ban social media", "To defend the value of local journalism", "To lower local taxes", "To hire more celebrity reporters"], correct: 1, level: "Critical" }
+        ]
+    }
+];
+
+function startAssessment() {
+    studentName = document.getElementById('name-input').value.trim();
+    if (!studentName) return alert("Please enter your name.");
+    document.getElementById('start-screen').classList.add('hidden');
+    document.getElementById('exam-area').classList.remove('hidden');
+    document.getElementById('timer-box').classList.remove('hidden');
+    document.getElementById('student-identity').innerText = `Candidate: ${studentName}`;
+    document.addEventListener("visibilitychange", () => { if (document.hidden) tabSwitches++; });
+    renderSection();
+    startMainTimer();
+}
+
+function renderSection() {
+    const data = examData[currentSection];
+    sectionTimeLeft = 480; 
+    document.getElementById('progress-text').innerText = `Passage ${currentSection + 1} of 3`;
+    document.getElementById('text-display').innerHTML = `<h3 class="text-xl font-bold mb-4">${data.title}</h3><p class="text-lg leading-relaxed">${data.content}</p>`;
+    
+    let qHTML = "";
+    data.questions.forEach((q, i) => {
+        qHTML += `<div class="bg-white p-4 border rounded shadow-sm">
+            <p class="font-bold mb-3">${i + 1}. ${q.q} <span class="text-xs text-blue-600">[${q.level}]</span></p>
+            <div class="space-y-2">`;
+        q.options.forEach((opt, oi) => {
+            qHTML += `<label class="block p-2 border rounded cursor-pointer"><input type="radio" name="sec${currentSection}q${i}" value="${oi}" class="mr-2"> ${opt}</label>`;
+        });
+        qHTML += `</div></div>`;
+    });
+    document.getElementById('question-display').innerHTML = qHTML;
+    
+    const navBtn = document.getElementById('nav-btn');
+    navBtn.disabled = true;
+    navBtn.className = "bg-gray-400 text-white px-8 py-3 rounded font-bold cursor-not-allowed";
+
+    if(sectionTimer) clearInterval(sectionTimer);
+    sectionTimer = setInterval(() => {
+        sectionTimeLeft--;
+        let m = Math.floor(sectionTimeLeft / 60), s = sectionTimeLeft % 60;
+        document.getElementById('lock-timer').innerText = `Section locked for ${m}:${s < 10 ? '0' : ''}${s}`;
+        if (sectionTimeLeft <= 0) {
+            clearInterval(sectionTimer);
+            document.getElementById('lock-timer').innerText = "Section Unlocked ✅";
+            navBtn.disabled = false;
+            navBtn.className = "bg-blue-900 text-white px-8 py-3 rounded font-bold hover:bg-blue-800 transition";
+        }
+    }, 1000);
+}
+
+function nextSection() {
+    const data = examData[currentSection];
+    data.questions.forEach((q, i) => {
+        const sel = document.querySelector(`input[name="sec${currentSection}q${i}"]:checked`);
+        userAnswers.push({ ...q, selected: sel ? parseInt(sel.value) : null });
+    });
+    if (currentSection < 2) { currentSection++; renderSection(); if (currentSection === 2) document.getElementById('nav-btn').innerText = "FINISH EXAM"; }
+    else { endExam(); }
+}
+
+function startMainTimer() {
+    mainTimer = setInterval(() => {
+        timeLeft--;
+        let m = Math.floor(timeLeft / 60), s = timeLeft % 60;
+        document.getElementById('timer').innerText = `${m}:${s < 10 ? '0' : ''}${s}`;
+        if (timeLeft <= 0) endExam();
+    }, 1000);
+}
+
+function endExam() {
+    clearInterval(mainTimer); clearInterval(sectionTimer);
+    document.getElementById('exam-area').classList.add('hidden');
+    document.getElementById('timer-box').classList.add('hidden');
+    document.getElementById('report-screen').classList.remove('hidden');
+    
+    let score = userAnswers.filter(a => a.selected === a.correct).length;
+    document.getElementById('final-score-pill').innerText = `${score} / ${userAnswers.length}`;
+    
+    let reportHTML = `<div class="grid grid-cols-2 gap-4 text-sm">
+        <div class="p-3 bg-gray-100 rounded"><strong>Student:</strong> ${studentName}</div>
+        <div class="p-3 bg-red-100 rounded text-red-800 font-bold"><strong>Integrity:</strong> ${tabSwitches} tab switch incidents.</div>
+    </div>`;
+
+    userAnswers.forEach((ans, i) => {
+        const correct = ans.selected === ans.correct;
+        reportHTML += `<div class="p-4 border-l-4 ${correct ? 'border-green-500 bg-green-50' : 'border-red-500 bg-red-50'} rounded shadow-sm">
+            <p class="font-bold text-sm text-gray-800">${i+1}. ${ans.q}</p>
+            <p class="text-xs text-gray-500 mb-2">Category: ${ans.level}</p>
+            ${!correct ? `<p class="text-xs text-red-700"><strong>Correct Answer:</strong> ${ans.options[ans.correct]}</p>
+            <p class="text-xs text-gray-600 mt-1 italic">Feedback: ${getFeedback(ans.level)}</p>` : `<p class="text-xs text-green-700 font-bold">Correct ✅</p>`}
+        </div>`;
+    });
+    document.getElementById('report-content').innerHTML = reportHTML;
+}
+
+function getFeedback(lvl) {
+    if (lvl === "Literal") return "This information is explicitly in the passage. Use a 'find' strategy for key nouns.";
+    if (lvl === "Inferential") return "The answer isn't written directly. Look for clues about feelings or underlying causes.";
+    return "Think about the author's purpose. Why was this text created? What are they trying to achieve?";
+}
+
+function generatePDF() {
+    const doc = new jsPDF();
+    doc.setFont("helvetica", "bold");
+    doc.text(`NCEA READING PERFORMANCE REPORT`, 20, 20);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Student Name: ${studentName}`, 20, 35);
+    doc.text(`Total Score: ${userAnswers.filter(a => a.selected === a.correct).length} / ${userAnswers.length}`, 20, 45);
+    doc.text(`Integrity Violations: ${tabSwitches} (Leaving the exam screen)`, 20, 55);
+    doc.text(`Report generated on: ${new Date().toLocaleDateString()}`, 20, 65);
+    doc.save(`${studentName}_NCEA_Reading_Report.pdf`);
+}
+</script>
+</body>
+</html>
